@@ -1,39 +1,31 @@
 import requests
 import collections
+import os
+import sys
 from bs4 import BeautifulSoup
 from time import sleep
 from anytree import Node, RenderTree
 
-def crawl(url, optional_keyphrase=""):
-    subURLList = []
-    subURLList = builtsoup(url, optional_keyphrase)
-    return subURLList
-
-def builtsoup(url, optional_keyphrase=""):
-    source = requests.get(url)
-    soup = BeautifulSoup(source.text,'lxml')
-    subURLList = getSubUrls(soup, optional_keyphrase)
-    return subURLList
+def checkStringForRain(searchStr):
+    searchStr = ''.join(chr for chr in searchStr if chr not in '(){}[]')
+    if(searchStr.startswith("rain") or searchStr.endswith("rain") or searchStr.startswith("Rain")):
+        return True
+    else:
+        return False
 
 def checkURLAnchorForKeyPhrase(subURlAnchorText, subURl, optional_keyphrase):
     flag = False
     subURlAnchor = subURlAnchorText.split(" ")
     for ss in subURlAnchor:
-       ss = ''.join(chr for chr in ss if chr not in '(){}[]')
-       if(ss.startswith("rain") or ss.endswith("rain") or ss.startswith("Rain")):
-           flag = True
+       flag = checkStringForRain(ss)
     if(not flag):
         ss = subURl[subURl.rfind("/")+1:]
         if("_" in ss):
             ssl = ss.split("_")
             for ssll in ssl:
-                ssll = ''.join(chr for chr in ss if chr not in '(){}[]')
-                if(ssll.startswith("rain") or ssll.endswith("rain") or ssll.startswith("Rain")):
-                    flag = True
+                flag = checkStringForRain(ssl)
         else:
-            ss = ''.join(chr for chr in ss if chr not in '(){}[]')
-            if(ss.startswith("rain") or ss.endswith("rain") or ss.startswith("Rain")):
-                flag = True
+            flag = checkStringForRain(ss)
     return flag
     
 def getSubUrls(soup, optional_keyphrase=""):
@@ -45,11 +37,27 @@ def getSubUrls(soup, optional_keyphrase=""):
             if("#" in subURl):
                 subURl = subURl[0: subURl.index("#")]
             if(optional_keyphrase != "" and len(optional_keyphrase) > 0):
-                if(checkURLAnchorForKeyPhrase(subURlAnchorText, subURl, optional_keyphrase) and ("https://en.wikipedia.org" + subURl) not in subURLList):  
-                    subURLList.append("https://en.wikipedia.org" + subURl)
+                flag = checkURLAnchorForKeyPhrase(subURlAnchorText, subURl, optional_keyphrase)
             else:
-                if(("https://en.wikipedia.org" + subURl) not in subURLList):  
-                    subURLList.append("https://en.wikipedia.org" + subURl)
+                flag = True
+            if(flag and ("https://en.wikipedia.org" + subURl not in subURLList)):
+                subURLList.append("https://en.wikipedia.org" + subURl)
+                #if(len(subURLList) == 3):
+                #    break
+    return subURLList
+
+def writeUrlSourceToText(url,soup):
+    strFileName = "urlDocumentData/" + url[url.rfind("/")+1:] + ".txt"
+    with open(strFileName,"wb") as file_obj:
+        file_obj.write((url+"\n").encode('utf-8'))
+        for txt in soup:
+            file_obj.write(txt.encode('utf-8'))
+
+def buildsoup(url, optional_keyphrase=""):
+    source = requests.get(url)
+    soup = BeautifulSoup(source.text,'lxml')
+    writeUrlSourceToText(url,soup);
+    subURLList = getSubUrls(soup, optional_keyphrase)
     return subURLList
 
 def writeURLDictToFile(urlDict):
@@ -60,8 +68,12 @@ def writeURLDictToFile(urlDict):
             for urls in list1:
                 file_obj.write(urls+",\n")
             
-def writeUrlsToFile(visited):
-    with open("visitedURLs.txt","w") as file_obj:
+def writeUrlsToFile(visited, optional_keyphrase=""):
+    if(optional_keyphrase != "" and len(optional_keyphrase) > 0):
+        strFileName = "visitedUrl/visitedURLsKeyPhrase.txt"
+    else:
+        strFileName = "visitedUrl/visitedURLs.txt"
+    with open(strFileName,"w") as file_obj:
         for url in visited:
             file_obj.write(url+"\n") 
             
@@ -74,6 +86,11 @@ def buildTree(urlDict, url):
             childNode = Node(urls, parent=parentNode)
     for pre, fill, node in RenderTree(startNode):
         print("%s%s" % (pre, node.name))
+        
+def crawl(url, optional_keyphrase=""):
+    subURLList = []
+    subURLList = buildsoup(url, optional_keyphrase)
+    return subURLList
     
 def buildSublist(urlDict, visited):
     subURLList = []
@@ -83,13 +100,33 @@ def buildSublist(urlDict, visited):
             if keyVal not in visited:
                 subURLList.append(keyVal)
     return subURLList
+
+def checkDirectories():
+    if(not os.path.exists("./visitedUrl")):
+        os.makedirs("./visitedUrl")
+    if(not os.path.exists("./urlDocumentData")):
+        os.makedirs("./urlDocumentData")
                         
-def main(url,optional_keyphrase=""):
+def main(args):
+#def main(url,optional_keyphrase=""):
+    #args = ""
+    optional_keyphrase = ""
+    if(args != ""):
+        if(len(args) == 2 or len(args) == 3):
+            print("proceed to crawl: ",args)
+            url = args[1]
+            if(len(args) == 3):
+                optional_keyphrase = args[2]
+        else:
+            print("Error in calling, format: python webCrawler.py \"seedurl\" \"keyword[optional]\"")
+            return
+    depth = 0;
+    flag = False
+    visited = set()
     subURLList = []
     urlDict = collections.OrderedDict()
-    visited = []
     subURLList.append(url);
-    flag = False
+    checkDirectories()
     for i in range(1,7):
         if(len(urlDict) > 0):
             subURLList = []
@@ -104,17 +141,20 @@ def main(url,optional_keyphrase=""):
                 continue
             subURLList1 = list(set(subURLList1))
             urlDict[url_1] = subURLList1;
-            visited.append(url_1)
+            visited.add(url_1)
             if(len(visited) == 1000):
                 flag = True
                 break
             #print("%d"%(len(visited)))
-            #sleep(1)
+            sleep(1)
+        depth = i;
         if flag:
             break
-    #writeURLDictToFile(urlDict)
-    writeUrlsToFile(visited)
+    writeURLDictToFile(urlDict)
+    writeUrlsToFile(visited,optional_keyphrase)
     #buildTree(urlDict, url)
-    print("*****done*****")  
+    print("Done, depth reached: ",depth)
 
-main("https://en.wikipedia.org/wiki/Tropical_cyclone")
+#main("https://en.wikipedia.org/wiki/Tropical_cyclone")
+if __name__ == "__main__":
+    main(sys.argv)
